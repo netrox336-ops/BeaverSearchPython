@@ -1,0 +1,35 @@
+[build-system]
+requires = ["setuptools>=75", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "beaversearch"
+version = "0.1.0"
+description = "Native Windows CS2 server inventory monitor"
+requires-python = ">=3.12"
+dependencies = [
+  "PySide6>=6.8",
+  "qasync>=0.27",
+  "httpx[http2]>=0.28",
+  "beautifulsoup4>=4.12",
+  "aiosqlite>=0.20",
+  "platformdirs>=4.3",
+  "openpyxl>=3.1",
+  "python-a2s>=1.3.0",
+]
+
+[project.scripts]
+beaversearch = "beaversearch.main:main"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+include-package-data = true
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+beaversearch = [
+  "ui/**/*.qml",
+  "assets/**/*",
+]
