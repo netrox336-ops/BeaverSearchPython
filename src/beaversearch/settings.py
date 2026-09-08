@@ -22,6 +22,10 @@ class AppSettings:
     request_timeout_seconds: int = 10
     player_recheck_hours: int = 24
     concurrent_scans: int = 5
+    server_concurrency: int = 4
+    inventory_concurrency: int = 4
+    market_concurrency: int = 2
+    market_min_interval_seconds: float = 0.35
     price_cache_minutes: int = 30
     steam_web_api_key: str = ""
     filters: SearchFilters = field(default_factory=SearchFilters)
@@ -46,7 +50,9 @@ class SettingsStore:
                 dota2=PriceRange(**filters_raw.get("dota2", {"minimum": 1000, "maximum": 5000, "enabled": True})),
                 rust=PriceRange(**filters_raw.get("rust", {"minimum": 4000, "maximum": 10000, "enabled": True})),
             )
-            return AppSettings(filters=filters, **raw)
+            known = {field_name for field_name in AppSettings.__dataclass_fields__ if field_name != "filters"}
+            sanitized = {k: v for k, v in raw.items() if k in known}
+            return AppSettings(filters=filters, **sanitized)
         except Exception:
             return AppSettings()
 
