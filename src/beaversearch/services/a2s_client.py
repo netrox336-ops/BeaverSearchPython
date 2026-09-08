@@ -29,7 +29,7 @@ class A2SClient:
         started = time.perf_counter()
         try:
             info = await asyncio.wait_for(
-                asyncio.to_thread(a2s.info, address, timeout=timeout),
+                a2s.ainfo(address, timeout=timeout),
                 timeout=timeout + 0.5,
             )
         except Exception as exc:
@@ -53,7 +53,7 @@ class A2SClient:
         for attempt in range(2):
             try:
                 player_rows = await asyncio.wait_for(
-                    asyncio.to_thread(a2s.players, address, timeout=timeout),
+                    a2s.aplayers(address, timeout=timeout),
                     timeout=timeout + 0.5,
                 )
                 player_error = None
