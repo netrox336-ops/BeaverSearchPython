@@ -95,7 +95,7 @@ ApplicationWindow {
                     opacity: 0.72
                 }
                 Text { text: "БОЛЬШЕ\nЧЕМ ПОИСК"; color: textMuted; font.pixelSize: 13; lineHeight: 1.5 }
-                Text { text: "v0.1.0"; color: "#687279"; font.pixelSize: 11 }
+                Text { text: "v0.2.0"; color: "#687279"; font.pixelSize: 11 }
             }
         }
 
@@ -300,14 +300,26 @@ ApplicationWindow {
                             }
                             Panel {
                                 Layout.fillWidth: true; Layout.fillHeight: true
-                                ColumnLayout { anchors.fill: parent; anchors.margins: 18; spacing: 14
+                                ColumnLayout {
+                                    anchors.fill: parent
+                                    anchors.margins: 18
+                                    spacing: 14
                                     Text { text: "Фильтры по умолчанию"; color: textPrimary; font.pixelSize: 19; font.bold: true }
                                     Text { text: "CS2"; color: textPrimary }
-                                    RowLayout { TextField { id: cs2min; text: "3500"; color: textPrimary }; TextField { id: cs2max; text: "30000"; color: textPrimary } }
+                                    RowLayout {
+                                        TextField { id: cs2min; text: "3500"; color: textPrimary }
+                                        TextField { id: cs2max; text: "30000"; color: textPrimary }
+                                    }
                                     Text { text: "Dota 2"; color: textPrimary }
-                                    RowLayout { TextField { id: dotamin; text: "1000"; color: textPrimary }; TextField { id: dotamax; text: "5000"; color: textPrimary } }
+                                    RowLayout {
+                                        TextField { id: dotamin; text: "1000"; color: textPrimary }
+                                        TextField { id: dotamax; text: "5000"; color: textPrimary }
+                                    }
                                     Text { text: "Rust"; color: textPrimary }
-                                    RowLayout { TextField { id: rustmin; text: "4000"; color: textPrimary }; TextField { id: rustmax; text: "10000"; color: textPrimary } }
+                                    RowLayout {
+                                        TextField { id: rustmin; text: "4000"; color: textPrimary }
+                                        TextField { id: rustmax; text: "10000"; color: textPrimary }
+                                    }
                                     AccentButton { text: "Сохранить"; onClicked: appController.saveFilters(parseInt(cs2min.text), parseInt(cs2max.text), parseInt(dotamin.text), parseInt(dotamax.text), parseInt(rustmin.text), parseInt(rustmax.text)) }
                                     Item { Layout.fillHeight: true }
                                 }
