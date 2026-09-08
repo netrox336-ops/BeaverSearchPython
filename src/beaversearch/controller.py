@@ -73,35 +73,62 @@ class AppController(QObject):
 
     async def shutdown(self) -> None:
         await self.stop_monitoring()
-        if self._services_ready:
-            await self.community.close()
-            await self.inventory.close()
-            await self.market.close()
-            if self.webapi:
-                await self.webapi.close()
+        await self._close_services()
         await self.db.close()
 
+    async def _close_services(self) -> None:
+        if not self._services_ready:
+            return
+        await self.community.close()
+        await self.inventory.close()
+        await self.market.close()
+        if self.webapi:
+            await self.webapi.close()
+        self._services_ready = False
+
     async def _rebuild_services(self) -> None:
-        if self._services_ready:
-            await self.community.close()
-            await self.inventory.close()
-            await self.market.close()
-            if self.webapi:
-                await self.webapi.close()
+        await self._close_services()
         self.community = SteamCommunityClient(self.settings.request_timeout_seconds)
-        self.webapi = SteamWebApiClient(self.settings.steam_web_api_key, self.settings.request_timeout_seconds) if self.settings.steam_web_api_key else None
-        self.inventory = SteamInventoryClient(self.settings.request_timeout_seconds + 5)
-        self.market = SteamMarketClient(self.settings.request_timeout_seconds, 3)
+        self.webapi = (
+            SteamWebApiClient(self.settings.steam_web_api_key, self.settings.request_timeout_seconds)
+            if self.settings.steam_web_api_key else None
+        )
+        self.inventory = SteamInventoryClient(
+            self.settings.request_timeout_seconds + 5,
+            self.settings.inventory_concurrency,
+        )
+        self.market = SteamMarketClient(
+            self.settings.request_timeout_seconds,
+            self.settings.market_concurrency,
+            self.settings.market_min_interval_seconds,
+        )
         self.scanner = PlayerScanner(
-            self.db, A2SClient(), SteamIdResolver(self.community, self.webapi), self.inventory, self.market,
-            self.settings.filters, self.settings.player_recheck_hours, self.settings.concurrent_scans,
+            self.db,
+            A2SClient(),
+            SteamIdResolver(self.community, self.webapi),
+            self.inventory,
+            self.market,
+            self.settings.filters,
+            self.settings.player_recheck_hours,
+            self.settings.concurrent_scans,
+            self.settings.price_cache_minutes,
         )
         self._services_ready = True
 
     async def refresh_models(self) -> None:
         servers = await self.db.list_servers()
         self._servers = [
-            {"id": s.id, "address": s.address, "name": s.name or s.address, "online": False, "map": "—", "players": "—", "ping": "—"}
+            {
+                "id": s.id,
+                "address": s.address,
+                "name": s.name or s.address,
+                "online": False,
+                "map": "—",
+                "players": "—",
+                "ping": "—",
+                "playerQueryOk": True,
+                "playerError": "",
+            }
             for s in servers
         ]
         self._results = await self.db.list_results()
@@ -147,11 +174,17 @@ class AppController(QObject):
     async def start_monitoring(self) -> None:
         if self._monitoring:
             return
+        servers = [s for s in await self.db.list_servers() if s.enabled]
+        if not servers:
+            self.toastRequested.emit("info", "Добавьте хотя бы один CS2 сервер")
+            return
         self._monitoring = True
         self.monitoringChanged.emit()
         self._monitor_task = asyncio.create_task(self._monitor_loop())
 
     async def stop_monitoring(self) -> None:
+        if not self._monitoring and not self._monitor_task:
+            return
         self._monitoring = False
         self.monitoringChanged.emit()
         if self._monitor_task:
@@ -163,29 +196,49 @@ class AppController(QObject):
             self._monitor_task = None
 
     async def _monitor_loop(self) -> None:
+        server_sem = asyncio.Semaphore(max(1, self.settings.server_concurrency))
+
+        async def run_one(server):
+            async with server_sem:
+                try:
+                    scan, found = await self.scanner.scan_server(server, self.settings.request_timeout_seconds)
+                    return server, scan, found, None
+                except Exception as exc:
+                    return server, None, [], exc
+
         while self._monitoring:
-            servers = await self.db.list_servers()
-            for index, server in enumerate(servers):
-                if not self._monitoring:
-                    break
-                scan, found = await self.scanner.scan_server(server, self.settings.request_timeout_seconds)
-                if index < len(self._servers):
-                    row = dict(self._servers[index])
+            servers = [s for s in await self.db.list_servers() if s.enabled]
+            rows = await asyncio.gather(*(run_one(server) for server in servers))
+            any_found = False
+
+            for server, scan, found, error in rows:
+                index = next((i for i, row in enumerate(self._servers) if row.get("id") == server.id), None)
+                if index is None:
+                    continue
+                row = dict(self._servers[index])
+                if error is not None or scan is None:
+                    row.update({"online": False, "players": "—", "ping": "—", "playerQueryOk": False, "playerError": str(error)})
+                else:
                     row.update({
                         "name": scan.snapshot.name or row["name"],
                         "online": scan.snapshot.online,
                         "map": scan.snapshot.map_name or "—",
                         "players": f"{scan.snapshot.players} / {scan.snapshot.max_players}" if scan.snapshot.online else "—",
                         "ping": f"{scan.snapshot.ping_ms} мс" if scan.snapshot.ping_ms is not None else "—",
+                        "playerQueryOk": scan.player_error is None,
+                        "playerError": scan.player_error or "",
                     })
-                    self._servers[index] = row
-                    self.serversChanged.emit()
-                self._checked_today += len(scan.players)
-                self._matched_session += len(found)
-                self.statsChanged.emit()
-                if found:
-                    self._results = await self.db.list_results()
-                    self.resultsChanged.emit()
+                    self._checked_today += len(scan.players)
+                    self._matched_session += len(found)
+                    any_found = any_found or bool(found)
+                self._servers[index] = row
+
+            self.serversChanged.emit()
+            self.statsChanged.emit()
+            if any_found:
+                self._results = await self.db.list_results()
+                self.resultsChanged.emit()
+
             await asyncio.sleep(max(10, self.settings.poll_interval_seconds))
 
     @Slot(int, int, int, int, int, int)
@@ -201,8 +254,16 @@ class AppController(QObject):
     def saveSteamApiKey(self, key: str) -> None:
         self.settings.steam_web_api_key = key.strip()
         self.store.save(self.settings)
-        asyncio.create_task(self._rebuild_services())
+        asyncio.create_task(self._apply_service_settings())
+
+    async def _apply_service_settings(self) -> None:
+        was_monitoring = self._monitoring
+        if was_monitoring:
+            await self.stop_monitoring()
+        await self._rebuild_services()
         self.toastRequested.emit("ok", "Steam Web API key сохранён")
+        if was_monitoring:
+            await self.start_monitoring()
 
     @Slot(str)
     def setLanguage(self, language: str) -> None:
